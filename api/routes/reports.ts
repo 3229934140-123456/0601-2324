@@ -1,8 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { dataStore } from '../src/data/store.js';
+import { authMiddleware } from '../middleware/auth.js';
 import type { ReportType } from '../../shared/types.js';
 
 const router = Router();
+
+router.use(authMiddleware);
 
 router.get('/', (req: Request, res: Response): void => {
   try {
@@ -10,7 +13,7 @@ router.get('/', (req: Request, res: Response): void => {
     const page = parseInt(req.query.page as string) || 1;
     const size = parseInt(req.query.size as string) || 10;
 
-    const result = dataStore.getReports(type, page, size);
+    const result = dataStore.getReports(type, page, size, req.user);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: '获取报告列表失败' });
@@ -20,7 +23,7 @@ router.get('/', (req: Request, res: Response): void => {
 router.get('/:id', (req: Request, res: Response): void => {
   try {
     const { id } = req.params;
-    const report = dataStore.getReportDetail(id);
+    const report = dataStore.getReportDetail(id, req.user);
 
     if (!report) {
       res.status(404).json({ error: '报告不存在' });

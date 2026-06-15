@@ -1,11 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Activity, Pill, AlertTriangle, Microscope, TrendingUp, MapPin } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import {
+  Activity, Pill, AlertTriangle, Microscope, TrendingUp, MapPin,
+  ChevronDown, ChevronUp, Building2, X
+} from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import StatCard from '@/components/StatCard';
 import { dashboardApi } from '@/api';
-import type { DashboardOverview, Province, HospitalRank, TrendData, DrugCategory } from '@shared/types';
+import type {
+  DashboardOverview, Province, HospitalRank, TrendData, DrugCategory, Hospital
+} from '@shared/types';
+import { useAuthStore } from '@/store/auth';
 
 export default function Dashboard() {
+  const { user } = useAuthStore();
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [provinces, setProvinces] = useState<Province[]>([]);
   const [ranking, setRanking] = useState<HospitalRank[]>([]);
@@ -14,28 +21,106 @@ export default function Dashboard() {
   const [rankType, setRankType] = useState<'infection' | 'usage'>('usage');
   const [trendDays, setTrendDays] = useState(7);
   const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
+  const [selectedHospital, setSelectedHospital] = useState<string | null>(null);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [showProvincePanel, setShowProvincePanel] = useState(false);
+
+  const selectedProvinceName = useMemo(() => {
+    const p = provinces.find(p => p.id === selectedProvince);
+    return p?.name || '';
+  }, [provinces, selectedProvince]);
+
+  const selectedHospitalName = useMemo(() => {
+    const h = hospitals.find(h => h.id === selectedHospital);
+    return h?.name || '';
+  }, [hospitals, selectedHospital]);
 
   useEffect(() => {
-    loadData();
-  }, [rankType, trendDays, selectedProvince]);
+    loadOverviewData();
+    loadProvinces();
+    loadRanking();
+  }, [rankType]);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (selectedProvince) {
+      loadProvinceDetail(selectedProvince);
+    } else {
+      loadNationalData();
+    }
+  }, [selectedProvince, selectedHospital, trendDays]);
+
+  const loadOverviewData = async () => {
     try {
-      const [overviewData, provincesData, rankingData, trendDataResult, drugData] = await Promise.all([
-        dashboardApi.getOverview(),
-        dashboardApi.getProvinces(),
-        dashboardApi.getRanking(rankType, 1, 10),
-        dashboardApi.getTrend(trendDays, selectedProvince || undefined),
+      const data = await dashboardApi.getOverview();
+      setOverview(data);
+    } catch (error) {
+      console.error('加载概览数据失败:', error);
+    }
+  };
+
+  const loadProvinces = async () => {
+    try {
+      const data = await dashboardApi.getProvinces();
+      setProvinces(data);
+    } catch (error) {
+      console.error('加载省份数据失败:', error);
+    }
+  };
+
+  const loadRanking = async () => {
+    try {
+      const data = await dashboardApi.getRanking(rankType, 1, 10);
+      setRanking(data.list);
+    } catch (error) {
+      console.error('加载排名数据失败:', error);
+    }
+  };
+
+  const loadNationalData = async () => {
+    try {
+      const [trendResult, drugResult] = await Promise.all([
+        dashboardApi.getTrend(trendDays),
         dashboardApi.getDrugCategories(),
       ]);
-
-      setOverview(overviewData);
-      setProvinces(provincesData);
-      setRanking(rankingData.list);
-      setTrendData(trendDataResult);
-      setDrugCategories(drugData);
+      setTrendData(trendResult);
+      setDrugCategories(drugResult);
     } catch (error) {
-      console.error('加载数据失败:', error);
+      console.error('加载全国数据失败:', error);
+    }
+  };
+
+  const loadProvinceDetail = async (provinceId: string) => {
+    try {
+      const [hospitalsResult, trendResult, drugResult] = await Promise.all([
+        dashboardApi.getHospitals(provinceId),
+        dashboardApi.getTrend(trendDays, provinceId, selectedHospital || undefined),
+        dashboardApi.getDrugCategories(provinceId, selectedHospital || undefined),
+      ]);
+      setHospitals(hospitalsResult);
+      setTrendData(trendResult);
+      setDrugCategories(drugResult);
+    } catch (error) {
+      console.error('加载省份详情失败:', error);
+    }
+  };
+
+  const handleProvinceClick = (provinceId: string) => {
+    if (selectedProvince === provinceId) {
+      setSelectedProvince(null);
+      setSelectedHospital(null);
+      setShowProvincePanel(false);
+    } else {
+      setSelectedProvince(provinceId);
+      setSelectedHospital(null);
+      setShowProvincePanel(true);
+    }
+  };
+
+  const handleHospitalChange = (hospitalId: string) => {
+    if (hospitalId === '') {
+      setSelectedHospital(null);
+    } else {
+      setSelectedHospital(hospitalId);
     }
   };
 
@@ -47,12 +132,18 @@ export default function Dashboard() {
     return 'from-red-400 to-red-500';
   };
 
-  const getInfectionBgColor = (rate: number) => {
-    if (rate < 3.5) return 'bg-emerald-50 border-emerald-200';
-    if (rate < 5) return 'bg-lime-50 border-lime-200';
-    if (rate < 6.5) return 'bg-yellow-50 border-yellow-200';
-    if (rate < 7.5) return 'bg-orange-50 border-orange-200';
-    return 'bg-red-50 border-red-200';
+  const getInfectionBgColor = (rate: number, selected: boolean) => {
+    let base = '';
+    if (rate < 3.5) base = 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100';
+    else if (rate < 5) base = 'bg-lime-50 border-lime-200 hover:bg-lime-100';
+    else if (rate < 6.5) base = 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100';
+    else if (rate < 7.5) base = 'bg-orange-50 border-orange-200 hover:bg-orange-100';
+    else base = 'bg-red-50 border-red-200 hover:bg-red-100';
+
+    if (selected) {
+      base += ' ring-2 ring-primary-500 ring-offset-1';
+    }
+    return base;
   };
 
   const getInfectionTextColor = (rate: number) => {
@@ -63,7 +154,7 @@ export default function Dashboard() {
     return 'text-red-600';
   };
 
-  const trendOption = {
+  const trendOption = useMemo(() => ({
     tooltip: {
       trigger: 'axis',
       backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -149,9 +240,9 @@ export default function Dashboard() {
         },
       },
     ],
-  };
+  }), [trendData]);
 
-  const drugPieOption = {
+  const drugPieOption = useMemo(() => ({
     tooltip: {
       trigger: 'item',
       backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -188,7 +279,7 @@ export default function Dashboard() {
             fontWeight: 'bold',
           },
         },
-        data: drugCategories.map((d, i) => ({
+        data: drugCategories.map((d) => ({
           value: d.value,
           name: d.name,
         })),
@@ -198,7 +289,7 @@ export default function Dashboard() {
         ],
       },
     ],
-  };
+  }), [drugCategories]);
 
   return (
     <div className="space-y-6">
@@ -242,24 +333,31 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-neutral-700 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-primary-500" />
-              全国感染率分布热力图
+              {user?.role === 'national' ? '全国感染率分布热力图' : '辖区感染率分布'}
             </h3>
             <div className="text-xs text-neutral-400">
-              共 {provinces.length} 个省份
+              共 <span className="font-semibold text-primary-500">{provinces.length}</span> 个省份
             </div>
           </div>
 
-          <div className="grid grid-cols-8 gap-2 mb-4">
-            {provinces.slice(0, 24).map((province) => (
+          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 mb-4 max-h-[400px] overflow-y-auto pr-1">
+            {provinces.map((province) => (
               <div
                 key={province.id}
-                className={`p-2 rounded-lg border cursor-pointer transition-all hover:scale-105 ${getInfectionBgColor(province.infectionRate)}`}
-                onClick={() => setSelectedProvince(selectedProvince === province.id ? null : province.id)}
-                title={`${province.name}: ${province.infectionRate}%`}
+                className={`p-2 rounded-lg border cursor-pointer transition-all hover:scale-105 ${
+                  getInfectionBgColor(province.infectionRate, selectedProvince === province.id)
+                }`}
+                onClick={() => handleProvinceClick(province.id)}
+                title={`${province.name}: ${province.infectionRate}%（${province.hospitalCount}家医院）`}
               >
-                <div className="text-xs text-neutral-600 truncate">{province.name}</div>
-                <div className={`text-lg font-bold ${getInfectionTextColor(province.infectionRate)}`}>
+                <div className="text-xs text-neutral-700 font-medium leading-tight mb-1 h-8 flex items-center justify-center text-center">
+                  {province.name.replace(/省|市|自治区|壮族|回族|维吾尔/g, '')}
+                </div>
+                <div className={`text-sm font-bold text-center ${getInfectionTextColor(province.infectionRate)}`}>
                   {province.infectionRate}%
+                </div>
+                <div className="text-[10px] text-neutral-500 text-center mt-0.5">
+                  {province.hospitalCount}家医院
                 </div>
               </div>
             ))}
@@ -287,7 +385,7 @@ export default function Dashboard() {
               <span className="w-4 h-4 rounded bg-red-400"></span>
               <span>高</span>
             </div>
-            <div className="w-40" />
+            <div className="w-20" />
           </div>
         </div>
 
@@ -355,12 +453,109 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {selectedProvince && showProvincePanel && (
+        <div className="bg-white rounded-lg shadow-card p-5 border-l-4 border-primary-500">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Building2 className="w-5 h-5 text-primary-500" />
+              <h3 className="font-semibold text-neutral-700">
+                {selectedProvinceName} - 详细数据
+              </h3>
+              <span className="text-xs text-neutral-400 bg-neutral-100 px-2 py-1 rounded">
+                {hospitals.length} 家医院
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedProvince(null);
+                setSelectedHospital(null);
+                setShowProvincePanel(false);
+              }}
+              className="text-neutral-400 hover:text-neutral-600 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-neutral-500">选择医院：</label>
+              <select
+                value={selectedHospital || ''}
+                onChange={(e) => handleHospitalChange(e.target.value)}
+                className="border border-neutral-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500"
+              >
+                <option value="">全省平均</option>
+                {hospitals.map(h => (
+                  <option key={h.id} value={h.id}>{h.name}</option>
+                ))}
+              </select>
+            </div>
+            {selectedHospital && (
+              <div className="text-sm text-neutral-500">
+                当前查看：<span className="text-primary-600 font-medium">{selectedHospitalName}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-neutral-50 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-neutral-600 mb-2">近 {trendDays} 天感染趋势</h4>
+              <ReactECharts
+                option={{
+                  ...trendOption,
+                  legend: { show: false },
+                  series: trendOption.series.filter((_, i) => i === 0),
+                  yAxis: [trendOption.yAxis[0]],
+                }}
+                style={{ height: '200px' }}
+              />
+            </div>
+            <div className="bg-neutral-50 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-neutral-600 mb-2">抗菌药物类别分布</h4>
+              <ReactECharts option={drugPieOption} style={{ height: '200px' }} />
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <h4 className="text-sm font-medium text-neutral-600 mb-3">医院列表</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {hospitals.map((hospital) => (
+                <div
+                  key={hospital.id}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    selectedHospital === hospital.id
+                      ? 'bg-primary-50 border-primary-300'
+                      : 'bg-neutral-50 border-neutral-200 hover:bg-neutral-100'
+                  }`}
+                  onClick={() => handleHospitalChange(
+                    selectedHospital === hospital.id ? '' : hospital.id
+                  )}
+                >
+                  <div className="text-sm font-medium text-neutral-700 truncate">{hospital.name}</div>
+                  <div className="flex items-center gap-3 mt-1 text-xs">
+                    <span className="text-neutral-500">
+                      {hospital.level === 'tertiary' ? '三级' : hospital.level === 'secondary' ? '二级' : '一级'}
+                    </span>
+                    <span className="text-danger-500 font-medium">
+                      感染率 {hospital.infectionRate}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 bg-white rounded-lg shadow-card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-neutral-700 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-primary-500" />
-              近 {trendDays} 天趋势分析
+              {selectedProvince
+                ? `${selectedProvinceName}${selectedHospital ? ` - ${selectedHospitalName}` : ''} 近 ${trendDays} 天趋势`
+                : `近 ${trendDays} 天趋势分析`}
             </h3>
             <div className="flex gap-1">
               {[7, 14, 30].map((days) => (
@@ -384,7 +579,9 @@ export default function Dashboard() {
         <div className="bg-white rounded-lg shadow-card p-5">
           <h3 className="font-semibold text-neutral-700 mb-4 flex items-center gap-2">
             <Pill className="w-4 h-4 text-primary-500" />
-            抗菌药物类别分布
+            {selectedProvince
+              ? `${selectedProvinceName}${selectedHospital ? ` - ${selectedHospitalName}` : ''} 药物分布`
+              : '抗菌药物类别分布'}
           </h3>
           <ReactECharts option={drugPieOption} style={{ height: '280px' }} />
         </div>

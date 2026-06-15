@@ -1,8 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { dataStore } from '../src/data/store.js';
+import { authMiddleware } from '../middleware/auth.js';
 import type { WarningLevel, WarningStatus } from '../../shared/types.js';
 
 const router = Router();
+
+router.use(authMiddleware);
 
 router.get('/', (req: Request, res: Response): void => {
   try {
@@ -11,7 +14,7 @@ router.get('/', (req: Request, res: Response): void => {
     const page = parseInt(req.query.page as string) || 1;
     const size = parseInt(req.query.size as string) || 10;
 
-    const result = dataStore.getWarnings(level, status, page, size);
+    const result = dataStore.getWarnings(level, status, page, size, req.user);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: '获取预警列表失败' });
@@ -21,7 +24,7 @@ router.get('/', (req: Request, res: Response): void => {
 router.get('/:id', (req: Request, res: Response): void => {
   try {
     const { id } = req.params;
-    const warning = dataStore.getWarningDetail(id);
+    const warning = dataStore.getWarningDetail(id, req.user);
 
     if (!warning) {
       res.status(404).json({ error: '预警不存在' });

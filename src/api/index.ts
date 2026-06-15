@@ -1,6 +1,7 @@
 import { api } from './request';
 import type {
   User,
+  Hospital,
   DashboardOverview,
   Province,
   HospitalRank,
@@ -36,14 +37,17 @@ export const dashboardApi = {
   getProvinces: () =>
     api.get<Province[]>('/dashboard/provinces'),
 
+  getHospitals: (provinceId?: string) =>
+    api.get<Hospital[]>('/dashboard/hospitals', { provinceId }),
+
   getRanking: (type: 'infection' | 'usage', page = 1, size = 10) =>
     api.get<{ list: HospitalRank[]; total: number }>('/dashboard/ranking', { type, page, size }),
 
-  getTrend: (days = 7, provinceId?: string) =>
-    api.get<TrendData[]>('/dashboard/trend', { days, provinceId }),
+  getTrend: (days = 7, provinceId?: string, hospitalId?: string) =>
+    api.get<TrendData[]>('/dashboard/trend', { days, provinceId, hospitalId }),
 
-  getDrugCategories: () =>
-    api.get<DrugCategory[]>('/dashboard/drug-categories'),
+  getDrugCategories: (provinceId?: string, hospitalId?: string) =>
+    api.get<DrugCategory[]>('/dashboard/drug-categories', { provinceId, hospitalId }),
 };
 
 export const warningsApi = {
@@ -73,11 +77,8 @@ export const procurementApi = {
   getDeviation: (planId: string) =>
     api.get<DeviationAnalysis>(`/procurement/deviation/${planId}`),
 
-  upload: (formData: FormData) =>
-    api.upload<{ imported: number; deviations: { drugName: string; deviation: number }[] }>(
-      '/procurement/upload',
-      formData,
-    ),
+  uploadPlan: (data: { hospitalId: string; hospitalName: string; year: number; items: { drugName: string; category: string; plannedQuantity: number }[] }) =>
+    api.post<{ plan: ProcurementPlan; analysis: DeviationAnalysis }>('/procurement/upload', data),
 };
 
 export const reportsApi = {
